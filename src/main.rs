@@ -8,8 +8,8 @@ fn u8_to_bits(num:u8) -> [bool; 8] {
     return bitarray;
 }
 
-fn bits_to_num(num: &[bool]) -> u8 {
-    let mut ret_val: u8 = 0;
+fn bits_to_num(num: &[bool]) -> u32 {
+    let mut ret_val: u32 = 0;
     for (i, bit) in num.iter().rev().enumerate() {
         ret_val += match bit {
             true => 1 << i,
@@ -20,7 +20,20 @@ fn bits_to_num(num: &[bool]) -> u8 {
 }
 
 fn bits_to_hex(num: &[bool]) -> String {
-    return format!("{:X}", bits_to_num(num));
+    let num_len = num.len();
+    let num_nibbles = num_len / 4;
+    let remainder = num_len % 4;
+    let mut ret_str = String::with_capacity(num_len);
+    for i in 0..num_nibbles {
+        let hex_str = bits_to_num(&num[(4*i)..(4*(i+1))]);
+        ret_str.push_str(format!("{:X}", hex_str).as_str());
+    }
+    if remainder != 0 {
+        let remain_num = bits_to_num(&num[4*num_nibbles..]);
+        ret_str.push_str(format!("{:X}", remain_num).as_str());
+
+    }
+    return ret_str;
 }
 
 fn main() {
@@ -56,4 +69,8 @@ fn main() {
     memory[0x91..0x96].copy_from_slice(&[0xE0, 0x90, 0x90, 0x90, 0xE0]); // D
     memory[0x96..0x9B].copy_from_slice(&[0xF0, 0x80, 0xF0, 0x80, 0xF0]); // E
     memory[0x9B..0xA0].copy_from_slice(&[0xF0, 0x80, 0xF0, 0x80, 0x80]); // F
+
+    // TODO: Load instructions into memory
+    println!("first opcode: {:?}", bits_to_hex(&contents[0..16]));
+    println!("second opcode: {:?}", bits_to_hex(&contents[16..32]));
 }
