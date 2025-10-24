@@ -1,4 +1,4 @@
-use std::fs;
+use std::{fs};
 
 fn u8_to_bits(num:u8) -> [bool; 8] {
     let mut bitarray: [bool;8] = [false; 8];
@@ -36,17 +36,11 @@ fn bits_to_hex(num: &[bool]) -> String {
     return ret_str;
 }
 
-fn main() {
-    let mut contents: Vec<bool> = vec![];
-    for bits in fs::read("programs/ibm.ch8").expect("Could not read chip-8 program").into_iter().map(|b| u8_to_bits(b)) {
-        contents.extend(bits);
-    }
-    println!("Contents: {:?}", contents);
- 
+fn main(){
     // expect("Could not read .ch8 file")
     // Initialize registers, pointers, and memory
-    let mut pc:u16;
-    let mut index:u16;
+    let mut pc: usize = 0x200;
+    let mut index: u16;
     let mut variable: [u8; 16] = [0; 16];
     let mut stack: Vec<u8>;
     let mut memory: [u8; 4096] = [0; 4096];
@@ -70,7 +64,26 @@ fn main() {
     memory[0x96..0x9B].copy_from_slice(&[0xF0, 0x80, 0xF0, 0x80, 0xF0]); // E
     memory[0x9B..0xA0].copy_from_slice(&[0xF0, 0x80, 0xF0, 0x80, 0x80]); // F
 
-    // TODO: Load instructions into memory
-    println!("first opcode: {:?}", bits_to_hex(&contents[0..16]));
-    println!("second opcode: {:?}", bits_to_hex(&contents[16..32]));
+    // Load instructions into memory
+    let mut mem_start: usize = 0x200;
+    let contents: Vec<u8> = fs::read("programs/ibm.ch8").expect("Could not read chip 8 program");
+    for byte in &contents {
+        memory[mem_start] = *byte;
+        mem_start += 1;
+    }
+
+
+    // Read instructions from memory
+    loop {
+        let opcode: String = format!("{}{}",bits_to_hex(&u8_to_bits(memory[pc])),bits_to_hex(&u8_to_bits(memory[pc+1])));
+        let start_nib: char = opcode.chars().next().unwrap();
+        match start_nib {
+            '0' => println!(""),
+            _ => {
+                println!("Valid opcode nibble not found");
+                break;
+            },
+        }
+        pc += 2;
+    }
 }
