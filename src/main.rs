@@ -1,5 +1,13 @@
 use std::{fs};
 
+extern crate sdl2;
+
+use sdl2::event::Event;
+use sdl2::keyboard::Keycode;
+use sdl2::pixels::Color;
+use sdl2::rect::{self, Rect};
+use std::time::Duration;
+
 fn u8_to_bits(num:u8) -> [bool; 8] {
     let mut bitarray: [bool;8] = [false; 8];
     for i in 0..8 {
@@ -36,12 +44,12 @@ fn bits_to_hex(num: &[bool]) -> String {
     return ret_str;
 }
 
-fn main(){
-    // expect("Could not read .ch8 file")
+pub fn main() -> Result<(), String> {
     // Initialize registers, pointers, and memory
     let mut pc: usize = 0x200;
-    let mut index: u16;
-    let mut variable: [u8; 16] = [0; 16];
+    let mut index: usize = 0;
+    // NOTE: register F is flag register (can be set to 0 or 1)
+    let mut registers: [u8; 16] = [0; 16];
     let mut stack: Vec<u8>;
     let mut memory: [u8; 4096] = [0; 4096];
 
@@ -73,17 +81,82 @@ fn main(){
     }
 
 
-    // Read instructions from memory
-    loop {
+    let sdl_context = sdl2::init()?;
+    let video_subsystem = sdl_context.video()?;
+
+    let window = video_subsystem
+        .window("rust-sdl2 demo: Video", 800, 600)
+        .position_centered()
+        .opengl()
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let mut canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
+
+    canvas.set_draw_color(Color::RGB(0, 0, 0));
+    canvas.clear();
+    canvas.present();
+    let mut event_pump = sdl_context.event_pump()?;
+
+    'running: loop {
+        for event in event_pump.poll_iter() {
+            match event {
+                Event::Quit { .. }
+                | Event::KeyDown {
+                    keycode: Some(Keycode::Escape),
+                    ..
+                } => break 'running,
+                _ => {}
+            }
+        }
+
         let opcode: String = format!("{}{}",bits_to_hex(&u8_to_bits(memory[pc])),bits_to_hex(&u8_to_bits(memory[pc+1])));
         let start_nib: char = opcode.chars().next().unwrap();
         match start_nib {
-            '0' => println!(""),
+            '0' => {
+                if opcode == "00E0" {
+                    canvas.set_draw_color(Color::RGB(0, 0, 0));
+                    canvas.clear();
+                }
+            },
+            '1' => {
+                // Jump to addr (set program counter)
+                pc  = opcode[1..].parse::<usize>().unwrap();
+            },
+            '6' => {
+                // 6XNN
+                // Set register X to NN
+                registers[opcode.chars().nth(1).unwrap().to_digit(16).unwrap() as usize] = u8::from_str_radix(&opcode[2..], 16).unwrap();
+            },
+            '7' => {
+                // 7XNN
+                // Add NN to register X
+                registers[opcode.chars().nth(1).unwrap().to_digit(16).unwrap() as usize] += u8::from_str_radix(&opcode[2..], 16).unwrap();
+            },
+            'A' => {
+                // ANNN
+                // Set index to NNN
+                index = usize::from_str_radix(&opcode[1..], 16).unwrap(); 
+            },
+            'D' => {
+                // DXYN
+                let x = registers[opcode.chars().nth(1).unwrap().to_digit(16).unwrap() as usize];
+                let y = registers[opcode.chars().nth(2).unwrap().to_digit(16).unwrap() as usize];
+                let height = opcode.chars().nth(3).unwrap().to_digit(16).unwrap();
+                canvas.set_draw_color(Color::RGB(255, 255, 255));
+                canvas.draw_rect(Rect::new(x as i32, y as i32, 8 as u32, height as u32)).unwrap();
+            },
             _ => {
                 println!("Valid opcode nibble not found");
                 break;
             },
         }
         pc += 2;
+
+        canvas.present();
+        ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
+        // The rest of the game loop goes here...
     }
+
+    Ok(())
 }
