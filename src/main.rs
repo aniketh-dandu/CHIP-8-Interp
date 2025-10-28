@@ -5,7 +5,7 @@ extern crate sdl2;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
-use sdl2::rect::{self, Rect};
+use sdl2::rect::{Point};
 use std::time::Duration;
 
 fn u8_to_bits(num:u8) -> [bool; 8] {
@@ -52,6 +52,7 @@ pub fn main() -> Result<(), String> {
     let mut registers: [u8; 16] = [0; 16];
     let mut stack: Vec<u8>;
     let mut memory: [u8; 4096] = [0; 4096];
+    let mut disp_mem: [bool; 2048] = [false; 2048];
 
     // Store font in memory
     // NOTE: Only first four bits are used (to make 5x4 bit grid)
@@ -74,7 +75,7 @@ pub fn main() -> Result<(), String> {
 
     // Load instructions into memory
     let mut mem_start: usize = 0x200;
-    let contents: Vec<u8> = fs::read("programs/ibm.ch8").expect("Could not read chip 8 program");
+    let contents: Vec<u8> = fs::read("programs/IBM Logo.ch8").expect("Could not read chip 8 program");
     for byte in &contents {
         memory[mem_start] = *byte;
         mem_start += 1;
@@ -85,13 +86,15 @@ pub fn main() -> Result<(), String> {
     let video_subsystem = sdl_context.video()?;
 
     let window = video_subsystem
-        .window("rust-sdl2 demo: Video", 800, 600)
+        .window("rust-sdl2 demo: Video", 640, 320)
         .position_centered()
+        .resizable()
         .opengl()
         .build()
         .map_err(|e| e.to_string())?;
 
     let mut canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
+    canvas.set_logical_size(64, 32).unwrap();
 
     canvas.set_draw_color(Color::RGB(0, 0, 0));
     canvas.clear();
@@ -117,6 +120,7 @@ pub fn main() -> Result<(), String> {
                 if opcode == "00E0" {
                     canvas.set_draw_color(Color::RGB(0, 0, 0));
                     canvas.clear();
+                    disp_mem = [false; 2048];
                 }
             },
             '1' => {
@@ -140,11 +144,30 @@ pub fn main() -> Result<(), String> {
             },
             'D' => {
                 // DXYN
-                let x = registers[opcode.chars().nth(1).unwrap().to_digit(16).unwrap() as usize];
-                let y = registers[opcode.chars().nth(2).unwrap().to_digit(16).unwrap() as usize];
-                let height = opcode.chars().nth(3).unwrap().to_digit(16).unwrap();
-                canvas.set_draw_color(Color::RGB(255, 255, 255));
-                canvas.draw_rect(Rect::new(x as i32, y as i32, 8 as u32, height as u32)).unwrap();
+                let x: u8 = registers[opcode.chars().nth(1).unwrap().to_digit(16).unwrap() as usize];
+                let y: u8 = registers[opcode.chars().nth(2).unwrap().to_digit(16).unwrap() as usize];
+                let height: u16 = opcode.chars().nth(3).unwrap().to_digit(16).unwrap() as u16;
+                registers[0xF] = 0;
+                for i in 0..height {
+                    let row: u16 = (y % 32) as u16 + i;
+                    let sprite: [bool; 8] = u8_to_bits(memory[index + (i as usize)]);
+                    for j in 0..8 {
+                        let col: u16 = (x % 64) as u16 + j as u16;
+                        let disp_offset: usize = ((row * 64) + col) as usize;
+                        let prev_bit: bool = disp_mem[disp_offset];
+                        if sprite[j as usize] {
+                            if prev_bit {
+                                disp_mem[disp_offset] = false;
+                                registers[0xF] = 1;
+                                canvas.set_draw_color(Color::RGB(0, 0, 0));
+                            } else {
+                                disp_mem[disp_offset] = true;
+                                canvas.set_draw_color(Color::RGB(255, 255, 255));
+                            }
+                            canvas.draw_point(Point::new(col as i32, row as i32)).unwrap();
+                        }
+                    }
+                }
             },
             _ => {
                 println!("Valid opcode nibble not found");
