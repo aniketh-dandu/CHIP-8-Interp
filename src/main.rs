@@ -75,7 +75,7 @@ pub fn main() -> Result<(), String> {
 
     // Load instructions into memory
     let mut mem_start: usize = 0x200;
-    let contents: Vec<u8> = fs::read("programs/ibm.ch8").expect("Could not read chip 8 program");
+    let contents: Vec<u8> = fs::read("programs/emulogo.ch8").expect("Could not read chip 8 program");
     for byte in &contents {
         memory[mem_start] = *byte;
         mem_start += 1;
@@ -133,15 +133,30 @@ pub fn main() -> Result<(), String> {
                 }
             },
             '1' => {
+                // 1NNN
                 // Jump to addr (set program counter)
-                pc  = opcode[1..].parse::<usize>().unwrap();
+                pc  = usize::from_str_radix(&opcode[1..], 16).unwrap();
             },
             '2' => {
+                // 2NNN
                 stack.push(pc);
                 pc = usize::from_str_radix(&opcode[1..], 16).unwrap();
             },
             '3' => {
+                // 3XNN
                 if registers[opcode.chars().nth(1).unwrap().to_digit(16).unwrap() as usize] == u8::from_str_radix(&opcode[2..], 16).unwrap() {
+                    pc += 2;
+                }
+            },
+            '4' => {
+                // 4XNN
+                if registers[opcode.chars().nth(1).unwrap().to_digit(16).unwrap() as usize] != u8::from_str_radix(&opcode[2..], 16).unwrap() {
+                    pc += 2;
+                }
+            },
+            '5' => {
+                // 5XY0
+                if registers[opcode.chars().nth(1).unwrap().to_digit(16).unwrap() as usize] == registers[opcode.chars().nth(1).unwrap().to_digit(16).unwrap() as usize] {
                     pc += 2;
                 }
             },
@@ -159,6 +174,9 @@ pub fn main() -> Result<(), String> {
                 // ANNN
                 // Set index to NNN
                 index = usize::from_str_radix(&opcode[1..], 16).unwrap(); 
+            },
+            'B' => {
+                pc = usize::from_str_radix(&opcode[1..], 16).unwrap() + registers[0] as usize;
             },
             // TODO: Fix timing to remove jittering
             'D' => {
@@ -188,8 +206,13 @@ pub fn main() -> Result<(), String> {
                     }
                 }
             },
+            'F' => {
+                if &opcode[2..] == "1E" {
+                    index += registers[opcode.chars().nth(1).unwrap().to_digit(16).unwrap() as usize] as usize;
+                }
+            },
             _ => {
-                println!("Valid opcode nibble not found");
+                println!("{}", opcode);
                 break;
             },
         }
