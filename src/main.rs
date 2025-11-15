@@ -50,7 +50,7 @@ pub fn main() -> Result<(), String> {
     let mut index: usize = 0;
     // NOTE: register F is flag register (can be set to 0 or 1)
     let mut registers: [u8; 16] = [0; 16];
-    let mut stack: Vec<u8>;
+    let mut stack: Vec<usize> = vec![];
     let mut memory: [u8; 4096] = [0; 4096];
     let mut disp_mem: [bool; 2048] = [false; 2048];
 
@@ -75,7 +75,7 @@ pub fn main() -> Result<(), String> {
 
     // Load instructions into memory
     let mut mem_start: usize = 0x200;
-    let contents: Vec<u8> = fs::read("programs/IBM Logo.ch8").expect("Could not read chip 8 program");
+    let contents: Vec<u8> = fs::read("programs/ibm.ch8").expect("Could not read chip 8 program");
     for byte in &contents {
         memory[mem_start] = *byte;
         mem_start += 1;
@@ -117,15 +117,33 @@ pub fn main() -> Result<(), String> {
         let start_nib: char = opcode.chars().next().unwrap();
         match start_nib {
             '0' => {
-                if opcode == "00E0" {
-                    canvas.set_draw_color(Color::RGB(0, 0, 0));
-                    canvas.clear();
-                    disp_mem = [false; 2048];
+                match opcode.as_str() {
+                    "00E0" => {
+                        canvas.set_draw_color(Color::RGB(0, 0, 0));
+                        canvas.clear();
+                        disp_mem = [false; 2048];
+                    },
+                    "00EE" => {
+                        pc = stack.pop().unwrap();
+                    },
+                    _ => {
+                        println!("Instruction not found!");
+                        println!("{}",opcode);
+                    }
                 }
             },
             '1' => {
                 // Jump to addr (set program counter)
                 pc  = opcode[1..].parse::<usize>().unwrap();
+            },
+            '2' => {
+                stack.push(pc);
+                pc = usize::from_str_radix(&opcode[1..], 16).unwrap();
+            },
+            '3' => {
+                if registers[opcode.chars().nth(1).unwrap().to_digit(16).unwrap() as usize] == u8::from_str_radix(&opcode[2..], 16).unwrap() {
+                    pc += 2;
+                }
             },
             '6' => {
                 // 6XNN
@@ -142,6 +160,7 @@ pub fn main() -> Result<(), String> {
                 // Set index to NNN
                 index = usize::from_str_radix(&opcode[1..], 16).unwrap(); 
             },
+            // TODO: Fix timing to remove jittering
             'D' => {
                 // DXYN
                 let x: u8 = registers[opcode.chars().nth(1).unwrap().to_digit(16).unwrap() as usize];
@@ -177,7 +196,7 @@ pub fn main() -> Result<(), String> {
         pc += 2;
 
         canvas.present();
-        ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
+        std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 700));
         // The rest of the game loop goes here...
     }
 
