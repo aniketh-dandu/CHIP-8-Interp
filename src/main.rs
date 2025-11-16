@@ -79,7 +79,7 @@ pub fn main() -> Result<(), String> {
 
     // Load instructions into memory
     let mut mem_start: usize = 0x200;
-    let contents: Vec<u8> = fs::read("programs/IBM Logo.ch8").expect("Could not read chip 8 program");
+    let contents: Vec<u8> = fs::read("programs/emulogo.ch8").expect("Could not read chip 8 program");
     for byte in &contents {
         memory[mem_start] = *byte;
         mem_start += 1;
@@ -124,6 +124,9 @@ pub fn main() -> Result<(), String> {
         let nibbles_usize: Vec<usize> = opcode.chars().map(|c| c.to_digit(16).unwrap() as usize).collect();
         let nibble_last_three = usize::from_str_radix(&opcode[1..], 16).unwrap();
         let nibble_last_two = u8::from_str_radix(&opcode[2..], 16).unwrap();
+
+        pc += 2;
+
         match nibbles_char.first().expect("No opcode found!") {
             '0' => {
                 match opcode.as_str() {
@@ -132,9 +135,9 @@ pub fn main() -> Result<(), String> {
                         canvas.clear();
                         disp_mem = [false; 2048];
                     },
-                    // "00EE" => {
-                    //     pc = stack.pop().unwrap();
-                    // },
+                    "00EE" => {
+                        pc = stack.pop().unwrap();
+                    },
                     _ => {
                         println!("Instruction not found!");
                         println!("{}",opcode);
@@ -146,29 +149,29 @@ pub fn main() -> Result<(), String> {
                 // Jump to addr (set program counter)
                 pc  = nibble_last_three;
             },
-            // '2' => {
-            //     // 2NNN
-            //     stack.push(pc);
-            //     pc = nibble_last_three;
-            // },
-            // '3' => {
-            //     // 3XNN
-            //     if registers[nibbles_usize[1]] == nibble_last_two {
-            //         pc += 2;
-            //     }
-            // },
-            // '4' => {
-            //     // 4XNN
-            //     if registers[nibbles_usize[1]] != nibble_last_two {
-            //         pc += 2;
-            //     }
-            // },
-            // '5' => {
-            //     // 5XY0
-            //     if registers[nibbles_usize[1]] == registers[nibbles_usize[1]] {
-            //         pc += 2;
-            //     }
-            // },
+            '2' => {
+                // 2NNN
+                stack.push(pc);
+                pc = nibble_last_three;
+            },
+            '3' => {
+                // 3XNN
+                if registers[nibbles_usize[1]] == nibble_last_two {
+                    pc += 2;
+                }
+            },
+            '4' => {
+                // 4XNN
+                if registers[nibbles_usize[1]] != nibble_last_two {
+                    pc += 2;
+                }
+            },
+            '5' => {
+                // 5XY0
+                if registers[nibbles_usize[1]] == registers[nibbles_usize[1]] {
+                    pc += 2;
+                }
+            },
             '6' => {
                 // 6XNN
                 // Set register X to NN
@@ -177,27 +180,27 @@ pub fn main() -> Result<(), String> {
             '7' => {
                 // 7XNN
                 // Add NN to register X
-                registers[nibbles_usize[1]] += nibble_last_two;
-                // registers[nibbles_usize[1]] = add_u8_with_overflow(&registers[nibbles_usize[1]],&nibble_last_two);
+                // registers[nibbles_usize[1]] += nibble_last_two;
+                registers[nibbles_usize[1]] = add_u8_with_overflow(&registers[nibbles_usize[1]],&nibble_last_two);
             },
-            // '8' => {
-            //     // match end_char {
-            //     //     '0' => {
-            //     //         registers[opcode.chars().nth(1).unwrap().to_digit(16).unwrap() as usize] = registers[opcode.chars().nth(2).unwrap().to_digit(16).unwrap() as usize];
-            //     //     },
-            //     //     _ => {
+            '8' => {
+                // match end_char {
+                //     '0' => {
+                //         registers[opcode.chars().nth(1).unwrap().to_digit(16).unwrap() as usize] = registers[opcode.chars().nth(2).unwrap().to_digit(16).unwrap() as usize];
+                //     },
+                //     _ => {
 
-            //     //     },
-            //     // }
-            // },
+                //     },
+                // }
+            },
             'A' => {
                 // ANNN
                 // Set index to NNN
                 index = nibble_last_three; 
             },
-            // 'B' => {
-            //     pc = nibble_last_three + registers[0] as usize;
-            // },
+            'B' => {
+                pc = nibble_last_three + registers[0] as usize;
+            },
             // TODO: Fix timing to remove jittering
             'D' => {
                 // DXYN
@@ -226,20 +229,19 @@ pub fn main() -> Result<(), String> {
                     }
                 }
             },
-            // 'F' => {
-            //     if &opcode[2..] == "1E" {
-            //         index += registers[opcode.chars().nth(1).unwrap().to_digit(16).unwrap() as usize] as usize;
-            //     }
-            // },
+            'F' => {
+                if &opcode[2..] == "1E" {
+                    index += registers[opcode.chars().nth(1).unwrap().to_digit(16).unwrap() as usize] as usize;
+                }
+            },
             _ => {
                 println!("{}", opcode);
                 break;
             },
         }
-        pc += 2;
 
         canvas.present();
-        std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 700));
+        std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
         // The rest of the game loop goes here...
     }
 
