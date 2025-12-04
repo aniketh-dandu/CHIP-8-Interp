@@ -6,7 +6,13 @@ use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
 use sdl2::rect::{Point};
-use std::time::Duration;
+use std::time::{Instant, Duration};
+
+// Define number of instructions per frame
+const IPF: i32 = 500;
+
+// Define path to ROM
+const PROGRAM_PATH: &str = "programs/ibm.ch8";
 
 fn u8_to_bits(num:u8) -> [bool; 8] {
     let mut bitarray: [bool;8] = [false; 8];
@@ -27,7 +33,8 @@ fn bits_to_num(num: &[bool]) -> u32 {
     return ret_val;
 }
 
-fn bits_to_hex(num: &[bool]) -> String {
+fn u8_to_hex(number:u8) -> String {
+    let num: [bool; 8] = u8_to_bits(number);
     let num_len = num.len();
     let num_nibbles = num_len / 4;
     let remainder = num_len % 4;
@@ -79,12 +86,11 @@ pub fn main() -> Result<(), String> {
 
     // Load instructions into memory
     let mut mem_start: usize = 0x200;
-    let contents: Vec<u8> = fs::read("programs/emulogo.ch8").expect("Could not read chip 8 program");
+    let contents: Vec<u8> = fs::read(PROGRAM_PATH).expect("Could not read chip 8 program");
     for byte in &contents {
         memory[mem_start] = *byte;
         mem_start += 1;
     }
-
 
     let sdl_context = sdl2::init()?;
     let video_subsystem = sdl_context.video()?;
@@ -105,6 +111,10 @@ pub fn main() -> Result<(), String> {
     canvas.present();
     let mut event_pump = sdl_context.event_pump()?;
 
+    let mut instruction_count: i32 = 0;
+    let mut throttle: bool = false;
+    let mut start_time = Instant::now();
+
     'running: loop {
         for event in event_pump.poll_iter() {
             match event {
@@ -117,132 +127,143 @@ pub fn main() -> Result<(), String> {
             }
         }
 
-        let opcode: String = format!("{}{}",bits_to_hex(&u8_to_bits(memory[pc])),bits_to_hex(&u8_to_bits(memory[pc+1])));
-        println!("{}", opcode);
-        // let start_nib: char = opcode.chars().next().unwrap();
-        let nibbles_char: Vec<char> = opcode.chars().collect();
-        let nibbles_usize: Vec<usize> = opcode.chars().map(|c| c.to_digit(16).unwrap() as usize).collect();
-        let nibble_last_three = usize::from_str_radix(&opcode[1..], 16).unwrap();
-        let nibble_last_two = u8::from_str_radix(&opcode[2..], 16).unwrap();
+        if !throttle {
+            instruction_count += 1;
 
-        pc += 2;
+            let opcode: String = format!("{}{}",u8_to_hex(memory[pc]),u8_to_hex(memory[pc+1]));
+            // println!("{}", opcode);
+            // let start_nib: char = opcode.chars().next().unwrap();
+            let nibbles_char: Vec<char> = opcode.chars().collect();
+            let nibbles_usize: Vec<usize> = opcode.chars().map(|c| c.to_digit(16).unwrap() as usize).collect();
+            let nibble_last_three = usize::from_str_radix(&opcode[1..], 16).unwrap();
+            let nibble_last_two = u8::from_str_radix(&opcode[2..], 16).unwrap();
 
-        match nibbles_char.first().expect("No opcode found!") {
-            '0' => {
-                match opcode.as_str() {
-                    "00E0" => {
-                        canvas.set_draw_color(Color::RGB(0, 0, 0));
-                        canvas.clear();
-                        disp_mem = [false; 2048];
-                    },
-                    "00EE" => {
-                        pc = stack.pop().unwrap();
-                    },
-                    _ => {
-                        println!("Instruction not found!");
-                        println!("{}",opcode);
-                    }
-                }
-            },
-            '1' => {
-                // 1NNN
-                // Jump to addr (set program counter)
-                pc  = nibble_last_three;
-            },
-            '2' => {
-                // 2NNN
-                stack.push(pc);
-                pc = nibble_last_three;
-            },
-            '3' => {
-                // 3XNN
-                if registers[nibbles_usize[1]] == nibble_last_two {
-                    pc += 2;
-                }
-            },
-            '4' => {
-                // 4XNN
-                if registers[nibbles_usize[1]] != nibble_last_two {
-                    pc += 2;
-                }
-            },
-            '5' => {
-                // 5XY0
-                if registers[nibbles_usize[1]] == registers[nibbles_usize[1]] {
-                    pc += 2;
-                }
-            },
-            '6' => {
-                // 6XNN
-                // Set register X to NN
-                registers[nibbles_usize[1]] = nibble_last_two;
-            },
-            '7' => {
-                // 7XNN
-                // Add NN to register X
-                // registers[nibbles_usize[1]] += nibble_last_two;
-                registers[nibbles_usize[1]] = add_u8_with_overflow(&registers[nibbles_usize[1]],&nibble_last_two);
-            },
-            '8' => {
-                // match end_char {
-                //     '0' => {
-                //         registers[opcode.chars().nth(1).unwrap().to_digit(16).unwrap() as usize] = registers[opcode.chars().nth(2).unwrap().to_digit(16).unwrap() as usize];
-                //     },
-                //     _ => {
+            pc += 2;
 
-                //     },
-                // }
-            },
-            'A' => {
-                // ANNN
-                // Set index to NNN
-                index = nibble_last_three; 
-            },
-            'B' => {
-                pc = nibble_last_three + registers[0] as usize;
-            },
-            // TODO: Fix timing to remove jittering
-            'D' => {
-                // DXYN
-                let x: u8 = registers[nibbles_usize[1]];
-                let y: u8 = registers[nibbles_usize[2]];
-                let height: u16 = nibbles_usize[3] as u16;
-                registers[0xF] = 0;
-                for i in 0..height {
-                    let row: u16 = (y % 32) as u16 + i;
-                    let sprite: [bool; 8] = u8_to_bits(memory[index + (i as usize)]);
-                    for j in 0..8 {
-                        let col: u16 = (x % 64) as u16 + j as u16;
-                        let disp_offset: usize = ((row * 64) + col) as usize;
-                        let prev_bit: bool = disp_mem[disp_offset];
-                        if sprite[j as usize] {
-                            if prev_bit {
-                                disp_mem[disp_offset] = false;
-                                registers[0xF] = 1;
-                                canvas.set_draw_color(Color::RGB(0, 0, 0));
-                            } else {
-                                disp_mem[disp_offset] = true;
-                                canvas.set_draw_color(Color::RGB(255, 255, 255));
-                            }
-                            canvas.draw_point(Point::new(col as i32, row as i32)).unwrap();
+            match nibbles_char.first().expect("No opcode found!") {
+                '0' => {
+                    match opcode.as_str() {
+                        "00E0" => {
+                            canvas.set_draw_color(Color::RGB(0, 0, 0));
+                            canvas.clear();
+                            disp_mem = [false; 2048];
+                        },
+                        "00EE" => {
+                            pc = stack.pop().unwrap();
+                        },
+                        _ => {
+                            println!("Instruction not found!");
+                            println!("{}",opcode);
                         }
                     }
-                }
-            },
-            'F' => {
-                if &opcode[2..] == "1E" {
-                    index += registers[opcode.chars().nth(1).unwrap().to_digit(16).unwrap() as usize] as usize;
-                }
-            },
-            _ => {
-                println!("{}", opcode);
-                break;
-            },
+                },
+                '1' => {
+                    // 1NNN
+                    // Jump to addr (set program counter)
+                    pc  = nibble_last_three;
+                },
+                '2' => {
+                    // 2NNN
+                    stack.push(pc);
+                    pc = nibble_last_three;
+                },
+                '3' => {
+                    // 3XNN
+                    if registers[nibbles_usize[1]] == nibble_last_two {
+                        pc += 2;
+                    }
+                },
+                '4' => {
+                    // 4XNN
+                    if registers[nibbles_usize[1]] != nibble_last_two {
+                        pc += 2;
+                    }
+                },
+                '5' => {
+                    // 5XY0
+                    if registers[nibbles_usize[1]] == registers[nibbles_usize[1]] {
+                        pc += 2;
+                    }
+                },
+                '6' => {
+                    // 6XNN
+                    // Set register X to NN
+                    registers[nibbles_usize[1]] = nibble_last_two;
+                },
+                '7' => {
+                    // 7XNN
+                    // Add NN to register X
+                    // registers[nibbles_usize[1]] += nibble_last_two;
+                    registers[nibbles_usize[1]] = add_u8_with_overflow(&registers[nibbles_usize[1]],&nibble_last_two);
+                },
+                '8' => {
+                    // match end_char {
+                    //     '0' => {
+                    //         registers[opcode.chars().nth(1).unwrap().to_digit(16).unwrap() as usize] = registers[opcode.chars().nth(2).unwrap().to_digit(16).unwrap() as usize];
+                    //     },
+                    //     _ => {
+
+                    //     },
+                    // }
+                },
+                'A' => {
+                    // ANNN
+                    // Set index to NNN
+                    index = nibble_last_three; 
+                },
+                'B' => {
+                    pc = nibble_last_three + registers[0] as usize;
+                },
+                // TODO: Fix timing to remove jittering
+                'D' => {
+                    // DXYN
+                    let x: u8 = registers[nibbles_usize[1]];
+                    let y: u8 = registers[nibbles_usize[2]];
+                    let height: u16 = nibbles_usize[3] as u16;
+                    registers[0xF] = 0;
+                    for i in 0..height {
+                        let row: u16 = (y % 32) as u16 + i;
+                        let sprite: [bool; 8] = u8_to_bits(memory[index + (i as usize)]);
+                        for j in 0..8 {
+                            let col: u16 = (x % 64) as u16 + j as u16;
+                            let disp_offset: usize = ((row * 64) + col) as usize;
+                            let prev_bit: bool = disp_mem[disp_offset];
+                            if sprite[j as usize] {
+                                if prev_bit {
+                                    disp_mem[disp_offset] = false;
+                                    registers[0xF] = 1;
+                                    canvas.set_draw_color(Color::RGB(0, 0, 0));
+                                } else {
+                                    disp_mem[disp_offset] = true;
+                                    canvas.set_draw_color(Color::RGB(255, 255, 255));
+                                }
+                                canvas.draw_point(Point::new(col as i32, row as i32)).unwrap();
+                            }
+                        }
+                    }
+                },
+                'F' => {
+                    if &opcode[2..] == "1E" {
+                        index += registers[opcode.chars().nth(1).unwrap().to_digit(16).unwrap() as usize] as usize;
+                    }
+                },
+                _ => {
+                    // println!("{}", opcode);
+                    break;
+                },
+            }
         }
 
-        canvas.present();
-        std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
-        // The rest of the game loop goes here...
+        if instruction_count >= IPF {
+            throttle = true;
+            instruction_count = 0;
+        }
+
+        if start_time.elapsed() > Duration::from_millis(16) {
+            throttle = false;
+            start_time = Instant::now();
+            canvas.present();
+        }
     }
 
     Ok(())
