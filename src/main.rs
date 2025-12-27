@@ -55,8 +55,11 @@ fn u8_to_hex(number: u8) -> String {
     return ret_str;
 }
 
-fn add_u8_with_overflow(num1: &u8, num2: &u8) -> u8 {
-    return ((*num1 as u16 + *num2 as u16) % 256) as u8;
+fn add_u8_with_overflow(num1: &u8, num2: &u8) -> (u8, bool) {
+    return (
+        ((*num1 as u16 + *num2 as u16) % 256) as u8,
+        (*num1 as u16 + *num2 as u16) > 256,
+    );
 }
 
 pub fn main() -> Result<(), String> {
@@ -200,7 +203,7 @@ pub fn main() -> Result<(), String> {
                     // 7XNN
                     // Add NN to register X
                     // registers[nibbles_usize[1]] += nibble_last_two;
-                    registers[nibbles_usize[1]] =
+                    (registers[nibbles_usize[1]], _) =
                         add_u8_with_overflow(&registers[nibbles_usize[1]], &nibble_last_two);
                 }
                 '8' => match nibbles_char.last().expect("Opcode not found") {
@@ -217,19 +220,26 @@ pub fn main() -> Result<(), String> {
                         registers[nibbles_usize[1]] ^= registers[nibbles_usize[2]];
                     }
                     '4' => {
-                        continue;
+                        // let (sum, flag) = add_u8_with_overflow(
+                        //     &registers[nibbles_usize[1]],
+                        //     &registers[nibbles_usize[2]],
+                        // );
+                        // registers[0xF] = flag as u8;
+                        // registers[nibbles_usize[2]] = sum;
                     }
                     '5' => {
                         continue;
                     }
                     '6' => {
-                        continue;
+                        registers[0xF] = registers[nibbles_usize[1]] & 0b00000001;
+                        registers[nibbles_usize[1]] = registers[nibbles_usize[1]] >> 1;
                     }
                     '7' => {
                         continue;
                     }
                     'E' => {
-                        continue;
+                        registers[0xF] = registers[nibbles_usize[1]] & 0b10000000;
+                        registers[nibbles_usize[1]] = registers[nibbles_usize[1]] << 1;
                     }
                     _ => {}
                 },
@@ -305,7 +315,7 @@ pub fn main() -> Result<(), String> {
                         }
                     }
                     "65" => {
-                        for i in 0..16 {
+                        for i in 0..nibbles_usize[1] {
                             registers[i] = memory[index + i];
                         }
                     }
