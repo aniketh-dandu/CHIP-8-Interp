@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 const IPF: i32 = 500;
 
 // Define path to ROM
-const PROGRAM_PATH: &str = "programs/randnum2.ch8";
+const PROGRAM_PATH: &str = "programs/3-corax+.ch8";
 
 // TODO: Add unit test for u8 helper functions
 // TODO: Finish implementing opcodes
@@ -187,7 +187,7 @@ pub fn main() -> Result<(), String> {
                 }
                 '5' => {
                     // 5XY0
-                    if registers[nibbles_usize[1]] == registers[nibbles_usize[1]] {
+                    if registers[nibbles_usize[1]] == registers[nibbles_usize[2]] {
                         pc += 2;
                     }
                 }
@@ -203,15 +203,40 @@ pub fn main() -> Result<(), String> {
                     registers[nibbles_usize[1]] =
                         add_u8_with_overflow(&registers[nibbles_usize[1]], &nibble_last_two);
                 }
-                '8' => {
-                    // match end_char {
-                    //     '0' => {
-                    //         registers[opcode.chars().nth(1).unwrap().to_digit(16).unwrap() as usize] = registers[opcode.chars().nth(2).unwrap().to_digit(16).unwrap() as usize];
-                    //     },
-                    //     _ => {
-
-                    //     },
-                    // }
+                '8' => match nibbles_char.last().expect("Opcode not found") {
+                    '0' => {
+                        registers[nibbles_usize[1]] = registers[nibbles_usize[2]];
+                    }
+                    '1' => {
+                        registers[nibbles_usize[1]] |= registers[nibbles_usize[2]];
+                    }
+                    '2' => {
+                        registers[nibbles_usize[1]] &= registers[nibbles_usize[2]];
+                    }
+                    '3' => {
+                        registers[nibbles_usize[1]] ^= registers[nibbles_usize[2]];
+                    }
+                    '4' => {
+                        continue;
+                    }
+                    '5' => {
+                        continue;
+                    }
+                    '6' => {
+                        continue;
+                    }
+                    '7' => {
+                        continue;
+                    }
+                    'E' => {
+                        continue;
+                    }
+                    _ => {}
+                },
+                '9' => {
+                    if registers[nibbles_usize[1]] != registers[nibbles_usize[2]] {
+                        pc += 2;
+                    }
                 }
                 'A' => {
                     // ANNN
