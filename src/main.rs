@@ -12,7 +12,8 @@ use std::time::{Duration, Instant};
 const IPF: i32 = 500;
 
 // Define path to ROM
-const PROGRAM_PATH: &str = "programs/3-corax+.ch8";
+// const PROGRAM_PATH: &str = "programs/3-corax+.ch8";
+const PROGRAM_PATH: &str = "programs/4-flags.ch8";
 
 // TODO: Add unit test for u8 helper functions
 // TODO: Finish implementing opcodes
@@ -64,8 +65,8 @@ fn add_u8_with_overflow(num1: &u8, num2: &u8) -> (u8, bool) {
 
 fn sub_u8_with_overflow(num1: &u8, num2: &u8) -> (u8, bool) {
     return (
-        ((*num2 as i16 - *num1 as i16) % 256) as u8,
-        (*num1 as i16 - *num2 as i16) < 0,
+        ((*num1 as i16 - *num2 as i16) % 256) as u8,
+        (*num1 as i16 - *num2 as i16) >= 0,
     );
 }
 
@@ -231,32 +232,34 @@ pub fn main() -> Result<(), String> {
                             &registers[nibbles_usize[1]],
                             &registers[nibbles_usize[2]],
                         );
-                        registers[0xF] = flag as u8;
                         registers[nibbles_usize[1]] = sum;
+                        registers[0xF] = flag as u8;
                     }
                     '5' => {
                         let (sum, flag) = sub_u8_with_overflow(
-                            &registers[nibbles_usize[2]],
                             &registers[nibbles_usize[1]],
+                            &registers[nibbles_usize[2]],
                         );
-                        registers[0xF] = flag as u8;
                         registers[nibbles_usize[1]] = sum;
+                        registers[0xF] = flag as u8;
                     }
                     '6' => {
-                        registers[0xF] = registers[nibbles_usize[1]] & 0b00000001;
-                        registers[nibbles_usize[1]] = registers[nibbles_usize[1]] >> 1;
+                        let lsb: u8 = registers[nibbles_usize[1]] & 0b1;
+                        registers[nibbles_usize[1]] >>= 1;
+                        registers[0xF] = lsb;
                     }
                     '7' => {
                         let (sum, flag) = sub_u8_with_overflow(
-                            &registers[nibbles_usize[1]],
                             &registers[nibbles_usize[2]],
+                            &registers[nibbles_usize[1]],
                         );
-                        registers[0xF] = flag as u8;
                         registers[nibbles_usize[1]] = sum;
+                        registers[0xF] = flag as u8;
                     }
                     'E' => {
-                        registers[0xF] = registers[nibbles_usize[1]] & 0b10000000;
-                        registers[nibbles_usize[1]] = registers[nibbles_usize[1]] << 1;
+                        let msb: u8 = (registers[nibbles_usize[1]] >> 7) & 0b1;
+                        registers[nibbles_usize[1]] <<= 1;
+                        registers[0xF] = msb;
                     }
                     _ => {}
                 },
