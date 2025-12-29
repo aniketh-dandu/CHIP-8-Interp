@@ -62,6 +62,13 @@ fn add_u8_with_overflow(num1: &u8, num2: &u8) -> (u8, bool) {
     );
 }
 
+fn sub_u8_with_overflow(num1: &u8, num2: &u8) -> (u8, bool) {
+    return (
+        ((*num2 as i16 - *num1 as i16) % 256) as u8,
+        (*num1 as i16 - *num2 as i16) < 0,
+    );
+}
+
 pub fn main() -> Result<(), String> {
     // Initialize registers, pointers, and memory
     let mut pc: usize = 0x200;
@@ -220,22 +227,32 @@ pub fn main() -> Result<(), String> {
                         registers[nibbles_usize[1]] ^= registers[nibbles_usize[2]];
                     }
                     '4' => {
-                        // let (sum, flag) = add_u8_with_overflow(
-                        //     &registers[nibbles_usize[1]],
-                        //     &registers[nibbles_usize[2]],
-                        // );
-                        // registers[0xF] = flag as u8;
-                        // registers[nibbles_usize[2]] = sum;
+                        let (sum, flag) = add_u8_with_overflow(
+                            &registers[nibbles_usize[1]],
+                            &registers[nibbles_usize[2]],
+                        );
+                        registers[0xF] = flag as u8;
+                        registers[nibbles_usize[1]] = sum;
                     }
                     '5' => {
-                        continue;
+                        let (sum, flag) = sub_u8_with_overflow(
+                            &registers[nibbles_usize[2]],
+                            &registers[nibbles_usize[1]],
+                        );
+                        registers[0xF] = flag as u8;
+                        registers[nibbles_usize[1]] = sum;
                     }
                     '6' => {
                         registers[0xF] = registers[nibbles_usize[1]] & 0b00000001;
                         registers[nibbles_usize[1]] = registers[nibbles_usize[1]] >> 1;
                     }
                     '7' => {
-                        continue;
+                        let (sum, flag) = sub_u8_with_overflow(
+                            &registers[nibbles_usize[1]],
+                            &registers[nibbles_usize[2]],
+                        );
+                        registers[0xF] = flag as u8;
+                        registers[nibbles_usize[1]] = sum;
                     }
                     'E' => {
                         registers[0xF] = registers[nibbles_usize[1]] & 0b10000000;
@@ -311,11 +328,17 @@ pub fn main() -> Result<(), String> {
                     "33" => {
                         let num_str = format!("{:0>3}", registers[nibbles_usize[1]]);
                         for i in 0..3 {
-                            memory[index + i] = num_str.chars().nth(i).unwrap() as u8;
+                            memory[index + i] =
+                                num_str.chars().nth(i).unwrap().to_digit(10).unwrap() as u8;
+                        }
+                    }
+                    "55" => {
+                        for i in 0..=nibbles_usize[1] {
+                            memory[index + i] = registers[i];
                         }
                     }
                     "65" => {
-                        for i in 0..nibbles_usize[1] {
+                        for i in 0..=nibbles_usize[1] {
                             registers[i] = memory[index + i];
                         }
                     }
