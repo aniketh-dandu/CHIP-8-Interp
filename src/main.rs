@@ -4,6 +4,7 @@ extern crate sdl2;
 
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
+use sdl2::keyboard::Scancode;
 use sdl2::pixels::Color;
 use sdl2::rect::Point;
 use std::time::{Duration, Instant};
@@ -12,8 +13,8 @@ use std::time::{Duration, Instant};
 const IPF: i32 = 500;
 
 // Define path to ROM
-// const PROGRAM_PATH: &str = "programs/3-corax+.ch8";
-const PROGRAM_PATH: &str = "programs/4-flags.ch8";
+// const PROGRAM_PATH: &str = "programs/4-flags.ch8";
+const PROGRAM_PATH: &str = "programs/6-keypad.ch8";
 
 // TODO: Add unit test for u8 helper functions
 // TODO: Finish implementing opcodes
@@ -70,6 +71,30 @@ fn sub_u8_with_overflow(num1: &u8, num2: &u8) -> (u8, bool) {
     );
 }
 
+fn u8_to_input_ascii(num: &u8) -> u8 {
+    match *num {
+        0 => 120,
+        1 => 49,
+        2 => 50,
+        3 => 51,
+        4 => 113,
+        5 => 119,
+        6 => 101,
+        7 => 97,
+        8 => 115,
+        9 => 100,
+        10 => 122,
+        11 => 99,
+        12 => 52,
+        13 => 114,
+        14 => 102,
+        15 => 118,
+        _ => {
+            return 0;
+        }
+    }
+}
+
 pub fn main() -> Result<(), String> {
     // Initialize registers, pointers, and memory
     let mut pc: usize = 0x200;
@@ -80,6 +105,9 @@ pub fn main() -> Result<(), String> {
     let mut stack: Vec<usize> = vec![];
     let mut memory: [u8; 4096] = [0; 4096];
     let mut disp_mem: [bool; 2048] = [false; 2048];
+
+    let mut delay_timer: u8 = 0;
+    let mut sound_timer: u8 = 0;
 
     // Store font in memory
     // NOTE: Only first four bits are used (to make 5x4 bit grid)
@@ -130,6 +158,9 @@ pub fn main() -> Result<(), String> {
     let mut instruction_count: i32 = 0;
     let mut throttle: bool = false;
     let mut start_time = Instant::now();
+    let mut timer_time = Instant::now();
+
+    let mut await_key: bool = false;
 
     'running: loop {
         for event in event_pump.poll_iter() {
@@ -158,6 +189,8 @@ pub fn main() -> Result<(), String> {
             let nibble_last_two = u8::from_str_radix(&opcode[2..], 16).unwrap();
 
             pc += 2;
+
+            let keyboard_state = event_pump.keyboard_state();
 
             match nibbles_char.first().expect("No opcode found!") {
                 '0' => match opcode.as_str() {
@@ -309,12 +342,63 @@ pub fn main() -> Result<(), String> {
                         }
                     }
                 }
+                'E' => {
+                    match &opcode[2..] {
+                        /* CHIP-8 layout
+                        * 1 2 3 C
+                        * 4 5 6 D
+                        * 7 8 9 E
+                        * A 0 B F
+                        */
+
+                        /* Modern layout
+                         * 1 2 3 4
+                         * Q W E R
+                         * A S D F
+                         * Z X C V
+                         */
+                        "9E" => {
+                            let codes: Vec<u32> = keyboard_state
+                                .pressed_scancodes()
+                                .into_iter()
+                                .map(|s| (Keycode::from_scancode(s).unwrap()) as u32)
+                                .collect();
+                            if codes.iter().any(|&c| {
+                                c == u8_to_input_ascii(&registers[nibbles_usize[1]]) as u32
+                            }) {
+                                pc += 2;
+                            }
+                        }
+                        "A1" => {
+                            let codes: Vec<u32> = keyboard_state
+                                .pressed_scancodes()
+                                .into_iter()
+                                .map(|s| (Keycode::from_scancode(s).unwrap()) as u32)
+                                .collect();
+                            if !codes.iter().any(|&c| {
+                                c == u8_to_input_ascii(&registers[nibbles_usize[1]]) as u32
+                            }) {
+                                pc += 2;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
                 'F' => match &opcode[2..] {
                     "07" => {
                         // Timer
                     }
                     "0A" => {
                         // Key Press
+                        // let mut finish: bool = false;
+                        // while !finish {
+                        //     let mut keys_pressed = keyboard_state.pressed_scancodes().into_iter();
+                        //     while let Some(key) = keys_pressed.next() {
+                        //         registers[nibbles_usize[1]] =
+                        //             Keycode::from_scancode(key).unwrap() as u8;
+                        //         finish = true;
+                        //     }
+                        // }
                     }
                     "15" => {
                         // Delay Timer
@@ -365,6 +449,18 @@ pub fn main() -> Result<(), String> {
             throttle = false;
             start_time = Instant::now();
             canvas.present();
+        }
+
+        if timer_time.elapsed() > Duration::from_micros(16666) {
+            timer_time = Instant::now();
+            if sound_timer > 0 {
+                // Play beep
+                sound_timer -= 1;
+            }
+
+            if delay_timer > 0 {
+                delay_timer -= 1;
+            }
         }
     }
 
