@@ -2,11 +2,13 @@ use std::{fs, process};
 
 extern crate sdl2;
 
+use sdl2::audio::{AudioCallback, AudioSpecDesired};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::keyboard::Scancode;
 use sdl2::pixels::Color;
 use sdl2::rect::Point;
+use std::f32::consts::PI;
 use std::time::{Duration, Instant};
 
 // Define number of instructions per frame
@@ -14,7 +16,7 @@ const IPF: i32 = 500;
 
 // Define path to ROM
 // const PROGRAM_PATH: &str = "programs/4-flags.ch8";
-const PROGRAM_PATH: &str = "programs/6-keypad.ch8";
+const PROGRAM_PATH: &str = "programs/7-beep.ch8";
 
 // TODO: Add unit test for u8 helper functions
 // TODO: Finish implementing opcodes
@@ -138,6 +140,51 @@ pub fn main() -> Result<(), String> {
 
     let sdl_context = sdl2::init()?;
     let video_subsystem = sdl_context.video()?;
+    let audio_subsystem = sdl_context.audio()?;
+
+    let sample_rate = 44100;
+    let duration_secs = 0.5;
+    let freq = 440.0;
+    let volume = 0.25;
+
+    let num_samples = (sample_rate as f32 * duration_secs) as usize;
+    let buffer: Vec<f32> = (0..num_samples)
+        .map(|i| {
+            let t = i as f32 / sample_rate as f32;
+            (2.0 * PI * freq * t).sin() * volume
+        })
+        .collect();
+
+    let desired_spec = AudioSpecDesired {
+        freq: Some(sample_rate),
+        channels: Some(1),
+        samples: None,
+    };
+
+    let position = 0;
+
+    let beep = audio_subsystem.open_playback(None, &desired_spec, move |_spec| {
+        struct CallbackWrapper {
+            buffer: Vec<f32>,
+            position: usize,
+        }
+
+        impl AudioCallback for CallbackWrapper {
+            type Channel = f32;
+            fn callback(&mut self, out: &mut [f32]) {
+                for sample in out.iter_mut() {
+                    if self.position < self.buffer.len() {
+                        *sample = self.buffer[self.position];
+                        self.position += 1;
+                    } else {
+                        *sample = 0.0;
+                    }
+                }
+            }
+        }
+
+        CallbackWrapper { buffer, position }
+    })?;
 
     let window = video_subsystem
         .window("rust-sdl2 demo: Video", 640, 320)
@@ -172,6 +219,13 @@ pub fn main() -> Result<(), String> {
                 } => break 'running,
                 _ => {}
             }
+        }
+
+        if sound_timer > 0 {
+            // Play beep
+            beep.resume();
+        } else {
+            beep.pause();
         }
 
         if !throttle {
@@ -401,10 +455,10 @@ pub fn main() -> Result<(), String> {
                         // }
                     }
                     "15" => {
-                        // Delay Timer
+                        delay_timer = registers[nibbles_usize[1]];
                     }
                     "18" => {
-                        // Sound Timer
+                        sound_timer = registers[nibbles_usize[1]];
                     }
                     "1E" => {
                         index += registers[nibbles_usize[1]] as usize;
@@ -454,7 +508,6 @@ pub fn main() -> Result<(), String> {
         if timer_time.elapsed() > Duration::from_micros(16666) {
             timer_time = Instant::now();
             if sound_timer > 0 {
-                // Play beep
                 sound_timer -= 1;
             }
 
