@@ -1,25 +1,14 @@
-use std::{fs, process};
+use std::{cmp::min, env, fs, path::Path, process};
 
 extern crate sdl2;
 
 use sdl2::audio::{AudioCallback, AudioSpecDesired};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
-use sdl2::keyboard::Scancode;
 use sdl2::pixels::Color;
 use sdl2::rect::Point;
 use std::f32::consts::PI;
 use std::time::{Duration, Instant};
-
-// Define number of instructions per frame
-const IPF: i32 = 15;
-
-// Define path to ROM
-// const PROGRAM_PATH: &str = "programs/4-flags.ch8";
-const PROGRAM_PATH: &str = "programs/pong.ch8";
-
-// TODO: Add unit test for u8 helper functions
-// TODO: Split opcode and draw loop onto separate threads (?)
 
 fn u8_to_bits(num: u8) -> [bool; 8] {
     let mut bitarray: [bool; 8] = [false; 8];
@@ -95,7 +84,35 @@ fn u8_to_input_ascii(num: &u8) -> u8 {
     }
 }
 
+/*
+ * ============================================
+ * TODO LIST TO BE IMPLEMENTED (INCLUDES FIXES)
+ * ============================================
+ */
+
+// TODO: Fix audio issues
+// TODO: Pause execution while resizing window
+// TODO: Add unit test for u8 helper functions
+// TODO: Split timers, opcode execution, and draw loop onto separate threads (TBD)
+
 pub fn main() -> Result<(), String> {
+    // Get CLI argument for program name
+    let args: Vec<String> = env::args().collect();
+    assert_eq!(args.len(), 3, "Please enter two valid arguments");
+
+    let rom_path: &str = &format!("programs/{}.ch8", &args[1]);
+    if !Path::new(rom_path).exists() || !Path::new(rom_path).is_file() {
+        println!(
+            "There is no such rom file at {}\n Please enter a valid rom path",
+            rom_path
+        );
+        process::exit(0);
+    }
+
+    // Define number of instructions per frame
+    let instructions_per_frame: u32 =
+        u32::from_str_radix(&args[2], 10).expect("Enter a valid IPF number");
+
     // Initialize registers, pointers, and memory
     let mut pc: usize = 0x200;
     let mut index: usize = 0;
@@ -106,6 +123,7 @@ pub fn main() -> Result<(), String> {
     let mut memory: [u8; 4096] = [0; 4096];
     let mut disp_mem: [bool; 2048] = [false; 2048];
 
+    // Initialize timers
     let mut delay_timer: u8 = 0;
     let mut sound_timer: u8 = 0;
 
@@ -130,16 +148,19 @@ pub fn main() -> Result<(), String> {
 
     // Load instructions into memory
     let mut mem_start: usize = 0x200;
-    let contents: Vec<u8> = fs::read(PROGRAM_PATH).expect("Could not read chip 8 program");
+    let contents: Vec<u8> =
+        fs::read(rom_path).expect(&format!("Could not read or find chip-8 rom {}", rom_path));
     for byte in &contents {
         memory[mem_start] = *byte;
         mem_start += 1;
     }
 
+    // Initialize SDL2 subsystems
     let sdl_context = sdl2::init()?;
     let video_subsystem = sdl_context.video()?;
     let audio_subsystem = sdl_context.audio()?;
 
+    // Initialize audio device
     let sample_rate = 44100;
     let duration_secs = 0.5;
     let freq = 440.0;
@@ -184,8 +205,9 @@ pub fn main() -> Result<(), String> {
         CallbackWrapper { buffer, position }
     })?;
 
+    // Initialize graphical window
     let window = video_subsystem
-        .window("rust-sdl2 demo: Video", 640, 320)
+        .window("rust-sdl2 demo: Video", 640 * 2, 320 * 2)
         .position_centered()
         .resizable()
         .opengl()
@@ -216,9 +238,26 @@ pub fn main() -> Result<(), String> {
             }
         }
 
-        if timer_time.elapsed() > Duration::from_micros(16666) {
+        if timer_time.elapsed() > Duration::from_micros(16667) {
             timer_time = Instant::now();
+
+            // Draw canvas (60 Hz refresh rate)
+            canvas.clear();
+            for col in 0..64 {
+                for row in 0..32 {
+                    if disp_mem[(col + row * 64) as usize] {
+                        canvas.set_draw_color(Color::RGB(255, 255, 255));
+                    } else {
+                        canvas.set_draw_color(Color::RGB(0, 0, 0));
+                    }
+                    canvas
+                        .draw_point(Point::new(col as i32, row as i32))
+                        .unwrap();
+                }
+            }
             canvas.present();
+
+            // TODO: Fix audio device not resetting on pause
             if sound_timer > 0 {
                 beep.resume();
                 sound_timer -= 1;
@@ -232,7 +271,7 @@ pub fn main() -> Result<(), String> {
 
             let keyboard_state = event_pump.keyboard_state();
 
-            for _ in 0..IPF {
+            for _ in 0..instructions_per_frame {
                 let keys_pressed = keyboard_state.pressed_scancodes().into_iter();
                 // For opcode FX0A to hold off on executing ticks until key press is determined
                 if await_key {
@@ -247,7 +286,6 @@ pub fn main() -> Result<(), String> {
                 let opcode: String =
                     format!("{}{}", u8_to_hex(memory[pc]), u8_to_hex(memory[pc + 1]));
                 // println!("{}", opcode);
-                // let start_nib: char = opcode.chars().next().unwrap();
                 let nibbles_char: Vec<char> = opcode.chars().collect();
                 let nibbles_usize: Vec<usize> = opcode
                     .chars()
@@ -275,7 +313,6 @@ pub fn main() -> Result<(), String> {
                     },
                     '1' => {
                         // 1NNN
-                        // Jump to addr (set program counter)
                         pc = nibble_last_three;
                     }
                     '2' => {
@@ -309,11 +346,11 @@ pub fn main() -> Result<(), String> {
                     '7' => {
                         // 7XNN
                         // Add NN to register X
-                        // registers[nibbles_usize[1]] += nibble_last_two;
                         (registers[nibbles_usize[1]], _) =
                             add_u8_with_overflow(&registers[nibbles_usize[1]], &nibble_last_two);
                     }
                     '8' => match nibbles_char.last().expect("Opcode not found") {
+                        // 8XY[N]
                         '0' => {
                             registers[nibbles_usize[1]] = registers[nibbles_usize[2]];
                         }
@@ -363,6 +400,7 @@ pub fn main() -> Result<(), String> {
                         _ => {}
                     },
                     '9' => {
+                        // 9XY0
                         if registers[nibbles_usize[1]] != registers[nibbles_usize[2]] {
                             pc += 2;
                         }
@@ -373,38 +411,30 @@ pub fn main() -> Result<(), String> {
                         index = nibble_last_three;
                     }
                     'B' => {
+                        // BNNN
                         pc = nibble_last_three + registers[0] as usize;
                     }
                     'C' => {
+                        // CXNN
                         registers[nibbles_usize[1]] = rand::random::<u8>() & nibble_last_two;
                     }
-
                     'D' => {
-                        // TODO: Fix rendering error with clipping
                         // DXYN
-                        let x: u8 = registers[nibbles_usize[1]];
-                        let y: u8 = registers[nibbles_usize[2]];
+                        let x: u8 = registers[nibbles_usize[1]] % 64;
+                        let y: u8 = registers[nibbles_usize[2]] % 32;
                         let height: u16 = nibbles_usize[3] as u16;
                         registers[0xF] = 0;
                         for i in 0..height {
-                            let row: u16 = (y % 32) as u16 + i;
+                            let row: usize = min(y as u16 + i, 31) as usize;
                             let sprite: [bool; 8] = u8_to_bits(memory[index + (i as usize)]);
                             for j in 0..8 {
-                                let col: u16 = ((x % 64) as u16 + j as u16) % 64;
-                                let disp_offset: usize = ((row * 64) + col) as usize;
+                                let col: usize = min((x + j) as usize, 63);
+                                let disp_offset: usize = (row * 64) + col;
                                 let prev_bit: bool = disp_mem[disp_offset];
-                                if sprite[j as usize] {
-                                    if prev_bit {
-                                        disp_mem[disp_offset] = false;
-                                        registers[0xF] = 1;
-                                        canvas.set_draw_color(Color::RGB(0, 0, 0));
-                                    } else {
-                                        disp_mem[disp_offset] = true;
-                                        canvas.set_draw_color(Color::RGB(255, 255, 255));
-                                    }
-                                    canvas
-                                        .draw_point(Point::new(col as i32, row as i32))
-                                        .unwrap();
+                                let sprite_bit: bool = sprite[j as usize];
+                                disp_mem[disp_offset] ^= sprite_bit;
+                                if sprite_bit && prev_bit {
+                                    registers[0xF] = 1;
                                 }
                             }
                         }
@@ -450,6 +480,7 @@ pub fn main() -> Result<(), String> {
                         }
                     }
                     'F' => match &opcode[2..] {
+                        // FX[NM]
                         "07" => {
                             registers[nibbles_usize[1]] = delay_timer;
                         }
@@ -491,12 +522,13 @@ pub fn main() -> Result<(), String> {
                         _ => {}
                     },
                     _ => {
-                        println!("{}", opcode);
+                        println!("Opcode not implemented: {}", opcode);
                         process::exit(1);
                     }
                 }
             }
         }
     }
+
     Ok(())
 }
