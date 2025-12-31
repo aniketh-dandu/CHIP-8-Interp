@@ -92,6 +92,8 @@ fn u8_to_input_ascii(num: &u8) -> u8 {
 
 // TODO: Fix audio issues
 // TODO: Pause execution while resizing window
+// TODO: Add fading effect on removed pixels (TBD)
+// TODO: Lower memory consumption
 // TODO: Add unit test for u8 helper functions
 // TODO: Split timers, opcode execution, and draw loop onto separate threads (TBD)
 
@@ -196,7 +198,9 @@ pub fn main() -> Result<(), String> {
                         *sample = self.buffer[self.position];
                         self.position += 1;
                     } else {
-                        *sample = 0.0;
+                        // *sample = 0.0;
+                        self.position = 0;
+                        *sample = self.buffer[self.position];
                     }
                 }
             }
@@ -270,9 +274,13 @@ pub fn main() -> Result<(), String> {
             }
 
             let keyboard_state = event_pump.keyboard_state();
+            let keycodes_pressed: Vec<u32> = keyboard_state
+                .pressed_scancodes()
+                .into_iter()
+                .map(|s| (Keycode::from_scancode(s).unwrap()) as u32)
+                .collect();
 
             for _ in 0..instructions_per_frame {
-                let keys_pressed = keyboard_state.pressed_scancodes().into_iter();
                 // For opcode FX0A to hold off on executing ticks until key press is determined
                 if await_key {
                     let mut keys_pressed = keyboard_state.pressed_scancodes().into_iter();
@@ -456,10 +464,7 @@ pub fn main() -> Result<(), String> {
                              */
                             "9E" => {
                                 // EX9E
-                                let codes: Vec<u32> = keys_pressed
-                                    .map(|s| (Keycode::from_scancode(s).unwrap()) as u32)
-                                    .collect();
-                                if codes.iter().any(|&c| {
+                                if keycodes_pressed.iter().any(|&c| {
                                     c == u8_to_input_ascii(&registers[nibbles_usize[1]]) as u32
                                 }) {
                                     pc += 2;
@@ -467,10 +472,7 @@ pub fn main() -> Result<(), String> {
                             }
                             "A1" => {
                                 // EXA1
-                                let codes: Vec<u32> = keys_pressed
-                                    .map(|s| (Keycode::from_scancode(s).unwrap()) as u32)
-                                    .collect();
-                                if !codes.iter().any(|&c| {
+                                if !keycodes_pressed.iter().any(|&c| {
                                     c == u8_to_input_ascii(&registers[nibbles_usize[1]]) as u32
                                 }) {
                                     pc += 2;
