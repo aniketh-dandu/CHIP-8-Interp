@@ -92,13 +92,10 @@ fn u8_to_input_ascii(num: &u8) -> u8 {
  * ============================================
  */
 
-// TODO: Fix audio (remove sin wave)
 // TODO: Pause execution while resizing window
 // TODO: Add fading effect on removed pixels (TBD)
 // TODO: Lower memory consumption
 // TODO: Add unit test for u8 helper functions
-// TODO: Split timers, opcode execution, and draw loop onto separate threads (TBD)
-//
 
 struct SineWave {
     phase_inc: f32,
@@ -228,6 +225,13 @@ pub fn main() -> Result<(), String> {
                     keycode: Some(Keycode::Escape),
                     ..
                 } => break 'running,
+                // If FX0A is fetched, store the first released key (assume first pressed)
+                Event::KeyUp { keycode, .. } => {
+                    if await_key {
+                        registers[await_op] = keycode.unwrap() as u8;
+                        await_key = false;
+                    }
+                }
                 _ => {}
             }
         }
@@ -275,13 +279,7 @@ pub fn main() -> Result<(), String> {
                 .collect();
 
             for _ in 0..instructions_per_frame {
-                // For opcode FX0A to hold off on executing ticks until key press is determined
                 if await_key {
-                    let mut keys_pressed = keyboard_state.pressed_scancodes().into_iter();
-                    while let Some(key) = keys_pressed.next() {
-                        registers[await_op] = Keycode::from_scancode(key).unwrap() as u8;
-                        await_key = false;
-                    }
                     break;
                 }
 
