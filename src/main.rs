@@ -90,7 +90,7 @@ fn u8_to_input_ascii(num: &u8) -> u8 {
  * ============================================
  */
 
-// TODO: Fix audio issues
+// TODO: Fix audio (remove sin wave)
 // TODO: Pause execution while resizing window
 // TODO: Add fading effect on removed pixels (TBD)
 // TODO: Lower memory consumption
@@ -500,8 +500,7 @@ pub fn main() -> Result<(), String> {
                             index += registers[nibbles_usize[1]] as usize;
                         }
                         "29" => {
-                            index =
-                                memory[0x50 + 5 * registers[nibbles_usize[1]] as usize] as usize;
+                            index = 0x50 + 5 * registers[nibbles_usize[1]] as usize;
                         }
                         "33" => {
                             let num_str = format!("{:0>3}", registers[nibbles_usize[1]]);
