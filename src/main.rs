@@ -12,56 +12,6 @@ use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
 use sdl2::rect::Point;
 
-fn u8_to_bits(num: u8) -> [bool; 8] {
-    let mut bitarray: [bool; 8] = [false; 8];
-    for i in 0..8 {
-        bitarray[7 - i] = ((num >> i) & 1) == 1;
-    }
-    return bitarray;
-}
-
-fn bits_to_num(num: &[bool]) -> u32 {
-    let mut ret_val: u32 = 0;
-    for (i, bit) in num.iter().rev().enumerate() {
-        ret_val += match bit {
-            true => 1 << i,
-            false => 0,
-        };
-    }
-    return ret_val;
-}
-
-fn u8_to_hex(number: u8) -> String {
-    let num: [bool; 8] = u8_to_bits(number);
-    let num_len = num.len();
-    let num_nibbles = num_len / 4;
-    let remainder = num_len % 4;
-    let mut ret_str = String::with_capacity(num_len);
-    for i in 0..num_nibbles {
-        let hex_str = bits_to_num(&num[(4 * i)..(4 * (i + 1))]);
-        ret_str.push_str(format!("{:X}", hex_str).as_str());
-    }
-    if remainder != 0 {
-        let remain_num = bits_to_num(&num[4 * num_nibbles..]);
-        ret_str.push_str(format!("{:X}", remain_num).as_str());
-    }
-    return ret_str;
-}
-
-fn add_u8_with_overflow(num1: &u8, num2: &u8) -> (u8, bool) {
-    return (
-        ((*num1 as u16 + *num2 as u16) % 256) as u8,
-        (*num1 as u16 + *num2 as u16) > 256,
-    );
-}
-
-fn sub_u8_with_overflow(num1: &u8, num2: &u8) -> (u8, bool) {
-    return (
-        ((*num1 as i16 - *num2 as i16) % 256) as u8,
-        (*num1 as i16 - *num2 as i16) >= 0,
-    );
-}
-
 fn u8_to_input_ascii(num: &u8) -> u8 {
     match *num {
         0 => 120,
@@ -92,10 +42,10 @@ fn u8_to_input_ascii(num: &u8) -> u8 {
  * ============================================
  */
 
+// TODO: Fix bug where finishing program does not result in hanging (?)
 // TODO: Pause execution while resizing window
 // TODO: Add fading effect on removed pixels (TBD)
 // TODO: Lower memory consumption
-// TODO: Add unit test for u8 helper functions
 
 struct SineWave {
     phase_inc: f32,
@@ -283,9 +233,10 @@ pub fn main() -> Result<(), String> {
                     break;
                 }
 
-                let opcode: String =
-                    format!("{}{}", u8_to_hex(memory[pc]), u8_to_hex(memory[pc + 1]));
-                // println!("{}", opcode);
+                let opcode: String = format!(
+                    "{:04X}",
+                    ((memory[pc] as u16) << 8 | (memory[pc + 1] as u16))
+                );
                 let nibbles_char: Vec<char> = opcode.chars().collect();
                 let nibbles_usize: Vec<usize> = opcode
                     .chars()
@@ -346,8 +297,8 @@ pub fn main() -> Result<(), String> {
                     '7' => {
                         // 7XNN
                         // Add NN to register X
-                        (registers[nibbles_usize[1]], _) =
-                            add_u8_with_overflow(&registers[nibbles_usize[1]], &nibble_last_two);
+                        registers[nibbles_usize[1]] =
+                            registers[nibbles_usize[1]].wrapping_add(*&nibble_last_two);
                     }
                     '8' => match nibbles_char.last().expect("Opcode not found") {
                         // 8XY[N]
@@ -364,20 +315,16 @@ pub fn main() -> Result<(), String> {
                             registers[nibbles_usize[1]] ^= registers[nibbles_usize[2]];
                         }
                         '4' => {
-                            let (sum, flag) = add_u8_with_overflow(
-                                &registers[nibbles_usize[1]],
-                                &registers[nibbles_usize[2]],
-                            );
+                            let (sum, flag) = registers[nibbles_usize[1]]
+                                .overflowing_add(registers[nibbles_usize[2]]);
                             registers[nibbles_usize[1]] = sum;
                             registers[0xF] = flag as u8;
                         }
                         '5' => {
-                            let (sum, flag) = sub_u8_with_overflow(
-                                &registers[nibbles_usize[1]],
-                                &registers[nibbles_usize[2]],
-                            );
+                            let (sum, flag) = registers[nibbles_usize[1]]
+                                .overflowing_sub(registers[nibbles_usize[2]]);
                             registers[nibbles_usize[1]] = sum;
-                            registers[0xF] = flag as u8;
+                            registers[0xF] = !flag as u8;
                         }
                         '6' => {
                             let lsb: u8 = registers[nibbles_usize[1]] & 0b1;
@@ -385,12 +332,10 @@ pub fn main() -> Result<(), String> {
                             registers[0xF] = lsb;
                         }
                         '7' => {
-                            let (sum, flag) = sub_u8_with_overflow(
-                                &registers[nibbles_usize[2]],
-                                &registers[nibbles_usize[1]],
-                            );
+                            let (sum, flag) = registers[nibbles_usize[2]]
+                                .overflowing_sub(registers[nibbles_usize[1]]);
                             registers[nibbles_usize[1]] = sum;
-                            registers[0xF] = flag as u8;
+                            registers[0xF] = !flag as u8;
                         }
                         'E' => {
                             let msb: u8 = (registers[nibbles_usize[1]] >> 7) & 0b1;
@@ -426,12 +371,12 @@ pub fn main() -> Result<(), String> {
                         registers[0xF] = 0;
                         for i in 0..height {
                             let row: usize = min(y as u16 + i, 31) as usize;
-                            let sprite: [bool; 8] = u8_to_bits(memory[index + (i as usize)]);
+                            let sprite: u8 = memory[index + (i as usize)];
                             for j in 0..8 {
                                 let col: usize = min((x + j) as usize, 63);
                                 let disp_offset: usize = (row * 64) + col;
                                 let prev_bit: bool = disp_mem[disp_offset];
-                                let sprite_bit: bool = sprite[j as usize];
+                                let sprite_bit: bool = (sprite >> (7 - j) & 0b1) == 1;
                                 disp_mem[disp_offset] ^= sprite_bit;
                                 if sprite_bit && prev_bit {
                                     registers[0xF] = 1;
