@@ -12,27 +12,25 @@ use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
 use sdl2::rect::Point;
 
-fn u8_to_input_ascii(num: &u8) -> u8 {
-    match *num {
-        0 => 120,
-        1 => 49,
-        2 => 50,
-        3 => 51,
-        4 => 113,
-        5 => 119,
-        6 => 101,
-        7 => 97,
-        8 => 115,
-        9 => 100,
-        10 => 122,
-        11 => 99,
-        12 => 52,
-        13 => 114,
-        14 => 102,
-        15 => 118,
-        _ => {
-            return 0;
-        }
+fn keycode_to_hex(key: &Keycode) -> Option<u16> {
+    match *key {
+        Keycode::Num1 => Some(0x1),
+        Keycode::Num2 => Some(0x2),
+        Keycode::Num3 => Some(0x3),
+        Keycode::Num4 => Some(0xC),
+        Keycode::Q => Some(0x4),
+        Keycode::W => Some(0x5),
+        Keycode::E => Some(0x6),
+        Keycode::R => Some(0xD),
+        Keycode::A => Some(0x7),
+        Keycode::S => Some(0x8),
+        Keycode::D => Some(0x9),
+        Keycode::F => Some(0xE),
+        Keycode::Z => Some(0xA),
+        Keycode::X => Some(0x0),
+        Keycode::C => Some(0xB),
+        Keycode::V => Some(0xF),
+        _ => None,
     }
 }
 
@@ -83,10 +81,7 @@ pub fn main() -> Result<(), String> {
     let instructions_per_frame: u32 =
         u32::from_str_radix(&args[2], 10).expect("Enter a valid IPF number");
 
-    // Initialize registers, pointers, and memory
-    let mut pc: usize = 0x200;
-    let mut index: usize = 0;
-
+    // Initialize memory, registers, and stack
     // NOTE: register F is flag register (can be set to 0 or 1)
     let mut registers: [u8; 16] = [0; 16];
     let mut stack: Vec<usize> = vec![];
@@ -117,13 +112,14 @@ pub fn main() -> Result<(), String> {
     memory[0x9B..0xA0].copy_from_slice(&[0xF0, 0x80, 0xF0, 0x80, 0x80]); // F
 
     // Load instructions into memory
-    let mut mem_start: usize = 0x200;
+    let mem_start: usize = 0x200;
     let contents: Vec<u8> =
         fs::read(rom_path).expect(&format!("Could not read or find chip-8 rom {}", rom_path));
-    for byte in &contents {
-        memory[mem_start] = *byte;
-        mem_start += 1;
-    }
+    memory[mem_start..mem_start + contents.len()].copy_from_slice(&contents);
+
+    // Initialize pointers
+    let mut pc: usize = mem_start;
+    let mut index: usize = 0;
 
     // Initialize SDL2 subsystems
     let sdl_context = sdl2::init()?;
@@ -177,10 +173,13 @@ pub fn main() -> Result<(), String> {
                     ..
                 } => break 'running,
                 // If FX0A is fetched, store the first released key (assume first pressed)
+                // NOTE: filter out keys that are not part of the CHIP-8 keypad
                 Event::KeyUp { keycode, .. } => {
                     if await_key {
-                        registers[await_op] = keycode.unwrap() as u8;
-                        await_key = false;
+                        if let Some(key) = keycode_to_hex(&keycode.unwrap_or(Keycode::Space)) {
+                            registers[await_op] = key as u8;
+                            await_key = false;
+                        }
                     }
                 }
                 _ => {}
@@ -199,9 +198,7 @@ pub fn main() -> Result<(), String> {
                     } else {
                         canvas.set_draw_color(Color::RGB(0, 0, 0));
                     }
-                    canvas
-                        .draw_point(Point::new(col as i32, row as i32))
-                        .unwrap();
+                    canvas.draw_point(Point::new(col as i32, row as i32))?;
                 }
             }
             canvas.present();
@@ -223,10 +220,10 @@ pub fn main() -> Result<(), String> {
             }
 
             let keyboard_state = event_pump.keyboard_state();
-            let keycodes_pressed: Vec<u32> = keyboard_state
+            let keycodes_pressed: Vec<Keycode> = keyboard_state
                 .pressed_scancodes()
                 .into_iter()
-                .map(|s| (Keycode::from_scancode(s).unwrap()) as u32)
+                .map(|s| (Keycode::from_scancode(s).unwrap()))
                 .collect();
 
             for _ in 0..instructions_per_frame {
@@ -247,7 +244,7 @@ pub fn main() -> Result<(), String> {
                         0xE0 => {
                             canvas.set_draw_color(Color::RGB(0, 0, 0));
                             canvas.clear();
-                            disp_mem = [false; 2048];
+                            disp_mem.fill(false);
                         }
                         0xEE => pc = stack.pop().unwrap(),
                         _ => {}
@@ -387,7 +384,8 @@ pub fn main() -> Result<(), String> {
                                 // EX9E
                                 if keycodes_pressed
                                     .iter()
-                                    .any(|&c| c == u8_to_input_ascii(&registers[x_nib]) as u32)
+                                    .filter_map(|c| keycode_to_hex(&c))
+                                    .any(|c| c == registers[x_nib] as u16)
                                 {
                                     pc += 2;
                                 }
@@ -396,7 +394,8 @@ pub fn main() -> Result<(), String> {
                                 // EXA1
                                 if !keycodes_pressed
                                     .iter()
-                                    .any(|&c| c == u8_to_input_ascii(&registers[x_nib]) as u32)
+                                    .filter_map(|c| keycode_to_hex(&c))
+                                    .any(|c| c == registers[x_nib] as u16)
                                 {
                                     pc += 2;
                                 }
@@ -426,11 +425,9 @@ pub fn main() -> Result<(), String> {
                             index = 0x50 + 5 * registers[x_nib] as usize;
                         }
                         0x33 => {
-                            let num_str = format!("{:0>3}", registers[x_nib]);
-                            for i in 0..3 {
-                                memory[index + i] =
-                                    num_str.chars().nth(i).unwrap().to_digit(10).unwrap() as u8;
-                            }
+                            memory[index] = registers[x_nib] / 100;
+                            memory[index + 1] = (registers[x_nib] / 10) % 10;
+                            memory[index + 2] = registers[x_nib] % 10;
                         }
                         0x55 => {
                             for i in 0..=x_nib {
