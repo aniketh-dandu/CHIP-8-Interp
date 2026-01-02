@@ -45,7 +45,8 @@ fn u8_to_input_ascii(num: &u8) -> u8 {
 // TODO: Fix bug where finishing program does not result in hanging (?)
 // TODO: Pause execution while resizing window
 // TODO: Add fading effect on removed pixels (TBD)
-// TODO: Lower memory consumption
+// TODO: Fix bug where incorrectly wraps sprite (seen in pong on clipping through screen)
+// TODO: Lower memory consumption (store all program memory within bounds 0x200)
 
 struct SineWave {
     phase_inc: f32,
@@ -233,141 +234,124 @@ pub fn main() -> Result<(), String> {
                     break;
                 }
 
-                let opcode: String = format!(
-                    "{:04X}",
-                    ((memory[pc] as u16) << 8 | (memory[pc + 1] as u16))
-                );
-                let nibbles_char: Vec<char> = opcode.chars().collect();
-                let nibbles_usize: Vec<usize> = opcode
-                    .chars()
-                    .map(|c| c.to_digit(16).unwrap() as usize)
-                    .collect();
-                let nibble_last_three = usize::from_str_radix(&opcode[1..], 16).unwrap();
-                let nibble_last_two = u8::from_str_radix(&opcode[2..], 16).unwrap();
+                let opcode: u16 = (memory[pc] as u16) << 8 | (memory[pc + 1] as u16);
+                let last_three_nibs: usize = (opcode & 0x0FFF) as usize;
+                let last_two_nibs: u8 = (opcode & 0x00FF) as u8;
+                let x_nib: usize = ((opcode & 0x0F00) >> 8) as usize;
+                let y_nib: usize = ((opcode & 0x00F0) >> 4) as usize;
 
                 pc += 2;
 
-                match nibbles_char.first().expect("No opcode found!") {
-                    '0' => match opcode.as_str() {
-                        "00E0" => {
+                match (opcode & 0xF000) >> 12 {
+                    0x0 => match last_two_nibs {
+                        0xE0 => {
                             canvas.set_draw_color(Color::RGB(0, 0, 0));
                             canvas.clear();
                             disp_mem = [false; 2048];
                         }
-                        "00EE" => {
-                            pc = stack.pop().unwrap();
-                        }
-                        _ => {
-                            println!("Instruction not found!");
-                            println!("{}", opcode);
-                        }
-                    },
-                    '1' => {
-                        // 1NNN
-                        pc = nibble_last_three;
-                    }
-                    '2' => {
-                        // 2NNN
-                        stack.push(pc);
-                        pc = nibble_last_three;
-                    }
-                    '3' => {
-                        // 3XNN
-                        if registers[nibbles_usize[1]] == nibble_last_two {
-                            pc += 2;
-                        }
-                    }
-                    '4' => {
-                        // 4XNN
-                        if registers[nibbles_usize[1]] != nibble_last_two {
-                            pc += 2;
-                        }
-                    }
-                    '5' => {
-                        // 5XY0
-                        if registers[nibbles_usize[1]] == registers[nibbles_usize[2]] {
-                            pc += 2;
-                        }
-                    }
-                    '6' => {
-                        // 6XNN
-                        // Set register X to NN
-                        registers[nibbles_usize[1]] = nibble_last_two;
-                    }
-                    '7' => {
-                        // 7XNN
-                        // Add NN to register X
-                        registers[nibbles_usize[1]] =
-                            registers[nibbles_usize[1]].wrapping_add(*&nibble_last_two);
-                    }
-                    '8' => match nibbles_char.last().expect("Opcode not found") {
-                        // 8XY[N]
-                        '0' => {
-                            registers[nibbles_usize[1]] = registers[nibbles_usize[2]];
-                        }
-                        '1' => {
-                            registers[nibbles_usize[1]] |= registers[nibbles_usize[2]];
-                        }
-                        '2' => {
-                            registers[nibbles_usize[1]] &= registers[nibbles_usize[2]];
-                        }
-                        '3' => {
-                            registers[nibbles_usize[1]] ^= registers[nibbles_usize[2]];
-                        }
-                        '4' => {
-                            let (sum, flag) = registers[nibbles_usize[1]]
-                                .overflowing_add(registers[nibbles_usize[2]]);
-                            registers[nibbles_usize[1]] = sum;
-                            registers[0xF] = flag as u8;
-                        }
-                        '5' => {
-                            let (sum, flag) = registers[nibbles_usize[1]]
-                                .overflowing_sub(registers[nibbles_usize[2]]);
-                            registers[nibbles_usize[1]] = sum;
-                            registers[0xF] = !flag as u8;
-                        }
-                        '6' => {
-                            let lsb: u8 = registers[nibbles_usize[1]] & 0b1;
-                            registers[nibbles_usize[1]] >>= 1;
-                            registers[0xF] = lsb;
-                        }
-                        '7' => {
-                            let (sum, flag) = registers[nibbles_usize[2]]
-                                .overflowing_sub(registers[nibbles_usize[1]]);
-                            registers[nibbles_usize[1]] = sum;
-                            registers[0xF] = !flag as u8;
-                        }
-                        'E' => {
-                            let msb: u8 = (registers[nibbles_usize[1]] >> 7) & 0b1;
-                            registers[nibbles_usize[1]] <<= 1;
-                            registers[0xF] = msb;
-                        }
+                        0xEE => pc = stack.pop().unwrap(),
                         _ => {}
                     },
-                    '9' => {
-                        // 9XY0
-                        if registers[nibbles_usize[1]] != registers[nibbles_usize[2]] {
+                    0x1 => {
+                        // 1NNN
+                        pc = last_three_nibs;
+                    }
+                    0x2 => {
+                        // 2NNN
+                        stack.push(pc);
+                        pc = last_three_nibs;
+                    }
+                    0x3 => {
+                        // 3XNN
+                        if registers[x_nib] == last_two_nibs {
                             pc += 2;
                         }
                     }
-                    'A' => {
+                    0x4 => {
+                        // 4XNN
+                        if registers[x_nib] != last_two_nibs {
+                            pc += 2;
+                        }
+                    }
+                    0x5 => {
+                        // 5XY0
+                        if registers[x_nib] == registers[y_nib] {
+                            pc += 2;
+                        }
+                    }
+                    0x6 => {
+                        // 6XNN
+                        registers[x_nib] = last_two_nibs;
+                    }
+                    0x7 => {
+                        // 7XNN
+                        registers[x_nib] = registers[x_nib].wrapping_add(last_two_nibs);
+                    }
+                    0x8 => match opcode & 0x000F {
+                        // 8XY[N]
+                        0x0 => {
+                            registers[x_nib] = registers[y_nib];
+                        }
+                        0x1 => {
+                            registers[x_nib] |= registers[y_nib];
+                        }
+                        0x2 => {
+                            registers[x_nib] &= registers[y_nib];
+                        }
+                        0x3 => {
+                            registers[x_nib] ^= registers[y_nib];
+                        }
+                        0x4 => {
+                            let (sum, flag) = registers[x_nib].overflowing_add(registers[y_nib]);
+                            registers[x_nib] = sum;
+                            registers[0xF] = flag as u8;
+                        }
+                        0x5 => {
+                            let (sum, flag) = registers[x_nib].overflowing_sub(registers[y_nib]);
+                            registers[x_nib] = sum;
+                            registers[0xF] = !flag as u8;
+                        }
+                        0x6 => {
+                            let lsb: u8 = registers[x_nib] & 0b1;
+                            registers[x_nib] >>= 1;
+                            registers[0xF] = lsb;
+                        }
+                        0x7 => {
+                            let (sum, flag) = registers[y_nib].overflowing_sub(registers[x_nib]);
+                            registers[x_nib] = sum;
+                            registers[0xF] = !flag as u8;
+                        }
+                        0xE => {
+                            let msb: u8 = (registers[x_nib] >> 7) & 0b1;
+                            registers[x_nib] <<= 1;
+                            registers[0xF] = msb;
+                        }
+
+                        _ => {}
+                    },
+                    0x9 => {
+                        // 9XY0
+                        if registers[x_nib] != registers[y_nib] {
+                            pc += 2;
+                        }
+                    }
+                    0xA => {
                         // ANNN
-                        // Set index to NNN
-                        index = nibble_last_three;
+                        index = last_three_nibs;
                     }
-                    'B' => {
+                    0xB => {
                         // BNNN
-                        pc = nibble_last_three + registers[0] as usize;
+                        pc = last_three_nibs + registers[0] as usize;
                     }
-                    'C' => {
+                    0xC => {
                         // CXNN
-                        registers[nibbles_usize[1]] = rand::random::<u8>() & nibble_last_two;
+                        registers[x_nib] = rand::random::<u8>() & last_two_nibs;
                     }
-                    'D' => {
+                    0xD => {
                         // DXYN
-                        let x: u8 = registers[nibbles_usize[1]] % 64;
-                        let y: u8 = registers[nibbles_usize[2]] % 32;
-                        let height: u16 = nibbles_usize[3] as u16;
+                        let x: u8 = registers[x_nib] % 64;
+                        let y: u8 = registers[y_nib] % 32;
+                        let height: u16 = opcode & 0x000F;
                         registers[0xF] = 0;
                         for i in 0..height {
                             let row: usize = min(y as u16 + i, 31) as usize;
@@ -384,8 +368,8 @@ pub fn main() -> Result<(), String> {
                             }
                         }
                     }
-                    'E' => {
-                        match &opcode[2..] {
+                    0xE => {
+                        match last_two_nibs {
                             /* CHIP-8 layout
                             * 1 2 3 C
                             * 4 5 6 D
@@ -399,70 +383,68 @@ pub fn main() -> Result<(), String> {
                              * A S D F
                              * Z X C V
                              */
-                            "9E" => {
+                            0x9E => {
                                 // EX9E
-                                if keycodes_pressed.iter().any(|&c| {
-                                    c == u8_to_input_ascii(&registers[nibbles_usize[1]]) as u32
-                                }) {
+                                if keycodes_pressed
+                                    .iter()
+                                    .any(|&c| c == u8_to_input_ascii(&registers[x_nib]) as u32)
+                                {
                                     pc += 2;
                                 }
                             }
-                            "A1" => {
+                            0xA1 => {
                                 // EXA1
-                                if !keycodes_pressed.iter().any(|&c| {
-                                    c == u8_to_input_ascii(&registers[nibbles_usize[1]]) as u32
-                                }) {
+                                if !keycodes_pressed
+                                    .iter()
+                                    .any(|&c| c == u8_to_input_ascii(&registers[x_nib]) as u32)
+                                {
                                     pc += 2;
                                 }
                             }
                             _ => {}
                         }
                     }
-                    'F' => match &opcode[2..] {
+                    0xF => match last_two_nibs {
                         // FX[NM]
-                        "07" => {
-                            registers[nibbles_usize[1]] = delay_timer;
+                        0x07 => {
+                            registers[x_nib] = delay_timer;
                         }
-                        "0A" => {
+                        0x0A => {
                             await_key = true;
-                            await_op = nibbles_usize[1];
+                            await_op = x_nib;
                         }
-                        "15" => {
-                            delay_timer = registers[nibbles_usize[1]];
+                        0x15 => {
+                            delay_timer = registers[x_nib];
                         }
-                        "18" => {
-                            sound_timer = registers[nibbles_usize[1]];
+                        0x18 => {
+                            sound_timer = registers[x_nib];
                         }
-                        "1E" => {
-                            index += registers[nibbles_usize[1]] as usize;
+                        0x1E => {
+                            index += registers[x_nib] as usize;
                         }
-                        "29" => {
-                            index = 0x50 + 5 * registers[nibbles_usize[1]] as usize;
+                        0x29 => {
+                            index = 0x50 + 5 * registers[x_nib] as usize;
                         }
-                        "33" => {
-                            let num_str = format!("{:0>3}", registers[nibbles_usize[1]]);
+                        0x33 => {
+                            let num_str = format!("{:0>3}", registers[x_nib]);
                             for i in 0..3 {
                                 memory[index + i] =
                                     num_str.chars().nth(i).unwrap().to_digit(10).unwrap() as u8;
                             }
                         }
-                        "55" => {
-                            for i in 0..=nibbles_usize[1] {
+                        0x55 => {
+                            for i in 0..=x_nib {
                                 memory[index + i] = registers[i];
                             }
                         }
-                        "65" => {
-                            for i in 0..=nibbles_usize[1] {
+                        0x65 => {
+                            for i in 0..=x_nib {
                                 registers[i] = memory[index + i];
                             }
                         }
-
                         _ => {}
                     },
-                    _ => {
-                        println!("Opcode not implemented: {}", opcode);
-                        process::exit(1);
-                    }
+                    _ => {}
                 }
             }
         }
