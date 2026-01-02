@@ -2,7 +2,7 @@ use std::cmp::min;
 use std::f32::consts::PI;
 use std::path::Path;
 use std::time::{Duration, Instant};
-use std::{env, fs, process};
+use std::{env, fs};
 
 extern crate sdl2;
 
@@ -42,9 +42,7 @@ fn keycode_to_hex(key: &Keycode) -> Option<u16> {
 
 // TODO: Fix bug where finishing program does not result in hanging (?)
 // TODO: Pause execution while resizing window
-// TODO: Add fading effect on removed pixels (TBD)
 // TODO: Fix bug where incorrectly wraps sprite (seen in pong on clipping through screen)
-// TODO: Lower memory consumption (store all program memory within bounds 0x200)
 
 struct SineWave {
     phase_inc: f32,
@@ -66,25 +64,25 @@ impl AudioCallback for SineWave {
 pub fn main() -> Result<(), String> {
     // Get CLI argument for program name
     let args: Vec<String> = env::args().collect();
-    assert_eq!(args.len(), 3, "Please enter two valid arguments");
 
-    let rom_path: &str = &format!("programs/{}.ch8", &args[1]);
+    let rom = args.get(1).ok_or("Missing ROM argument")?;
+    let ipf = args.get(2).ok_or("Missing IPF argument")?;
+
+    // Check to make sure rom exists (otherwise throw error)
+    let rom_path: &str = &format!("programs/{}.ch8", rom);
     if !Path::new(rom_path).exists() || !Path::new(rom_path).is_file() {
-        println!(
-            "There is no such rom file at {}\n Please enter a valid rom path",
-            rom_path
-        );
-        process::exit(0);
+        return Err(format!("There is no ROM \"{}\" at {}", rom, rom_path));
     }
 
-    // Define number of instructions per frame
-    let instructions_per_frame: u32 =
-        u32::from_str_radix(&args[2], 10).expect("Enter a valid IPF number");
+    // Define number of instructions per frame (propagate error up if encountered)
+    let instructions_per_frame: u8 = ipf
+        .parse::<u8>()
+        .map_err(|_| format!("Enter a valid IPF number"))?;
 
     // Initialize memory, registers, and stack
     // NOTE: register F is flag register (can be set to 0 or 1)
     let mut registers: [u8; 16] = [0; 16];
-    let mut stack: Vec<usize> = vec![];
+    let mut stack: Vec<usize> = Vec::with_capacity(16);
     let mut memory: [u8; 4096] = [0; 4096];
     let mut disp_mem: [bool; 2048] = [false; 2048];
 
