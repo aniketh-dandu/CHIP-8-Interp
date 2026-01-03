@@ -131,7 +131,7 @@ pub fn main() -> Result<(), String> {
 
     // Initialize graphical window
     let window = video_subsystem
-        .window("rust-sdl2 demo: Video", 640 * 2, 320 * 2)
+        .window("Chip-8", 640 * 2, 320 * 2)
         .position_centered()
         .resizable()
         .opengl()
