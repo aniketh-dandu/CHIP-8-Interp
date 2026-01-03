@@ -1,4 +1,3 @@
-use std::cmp::min;
 use std::f32::consts::PI;
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -10,7 +9,6 @@ use sdl2::audio::{AudioCallback, AudioSpecDesired};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
-use sdl2::rect::Point;
 
 fn keycode_to_hex(key: &Keycode) -> Option<u16> {
     match *key {
@@ -83,6 +81,7 @@ pub fn main() -> Result<(), String> {
     // NOTE: register F is flag register (can be set to 0 or 1)
     let mut registers: [u8; 16] = [0; 16];
     let mut stack: Vec<usize> = Vec::with_capacity(16);
+    // NOTE: Storing display state in memory from 0x80 to 0x180
     let mut memory: [u8; 4096] = [0; 4096];
     let mut disp_mem: [bool; 2048] = [false; 2048];
 
@@ -128,7 +127,7 @@ pub fn main() -> Result<(), String> {
     let mut audio_paused: bool = false;
 
     let desired_spec = AudioSpecDesired {
-        freq: Some(44100),
+        freq: Some(11025),
         channels: Some(1),
         samples: None,
     };
@@ -152,6 +151,11 @@ pub fn main() -> Result<(), String> {
 
     let mut canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
     canvas.set_logical_size(64, 32).unwrap();
+
+    let texture_creator = canvas.texture_creator();
+    let mut texture: sdl2::render::Texture = texture_creator
+        .create_texture_streaming(sdl2::pixels::PixelFormatEnum::RGB24, 64, 32)
+        .map_err(|e| e.to_string())?;
 
     canvas.set_draw_color(Color::RGB(0, 0, 0));
     canvas.clear();
@@ -189,16 +193,20 @@ pub fn main() -> Result<(), String> {
 
             // Draw canvas (60 Hz refresh rate)
             canvas.clear();
-            for col in 0..64 {
-                for row in 0..32 {
-                    if disp_mem[(col + row * 64) as usize] {
-                        canvas.set_draw_color(Color::RGB(255, 255, 255));
-                    } else {
-                        canvas.set_draw_color(Color::RGB(0, 0, 0));
+            texture.with_lock(None, |buffer: &mut [u8], pitch: usize| {
+                for col in 0..64 {
+                    for row in 0..32 {
+                        let offset = row * pitch + col * 3;
+                        let color = if disp_mem[row * 64 + col] {
+                            [255, 255, 255]
+                        } else {
+                            [0, 0, 0]
+                        };
+                        buffer[offset..offset + 3].copy_from_slice(&color);
                     }
-                    canvas.draw_point(Point::new(col as i32, row as i32))?;
                 }
-            }
+            })?;
+            canvas.copy(&texture, None, None)?;
             canvas.present();
 
             // Update timers
@@ -242,6 +250,7 @@ pub fn main() -> Result<(), String> {
                         0xE0 => {
                             canvas.set_draw_color(Color::RGB(0, 0, 0));
                             canvas.clear();
+                            // memory[0x80..0x180].fill(0);
                             disp_mem.fill(false);
                         }
                         0xEE => pc = stack.pop().unwrap(),
@@ -344,15 +353,21 @@ pub fn main() -> Result<(), String> {
                     }
                     0xD => {
                         // DXYN
-                        let x: u8 = registers[x_nib] % 64;
-                        let y: u8 = registers[y_nib] % 32;
+                        let x: u16 = (registers[x_nib] % 64) as u16;
+                        let y: u16 = (registers[y_nib] % 32) as u16;
                         let height: u16 = opcode & 0x000F;
                         registers[0xF] = 0;
                         for i in 0..height {
-                            let row: usize = min(y as u16 + i, 31) as usize;
+                            let row: usize = (y + i) as usize;
+                            if row >= 32 {
+                                break;
+                            }
                             let sprite: u8 = memory[index + (i as usize)];
                             for j in 0..8 {
-                                let col: usize = min((x + j) as usize, 63);
+                                let col: usize = (x + j) as usize;
+                                if col >= 64 {
+                                    break;
+                                }
                                 let disp_offset: usize = (row * 64) + col;
                                 let prev_bit: bool = disp_mem[disp_offset];
                                 let sprite_bit: bool = (sprite >> (7 - j) & 0b1) == 1;
