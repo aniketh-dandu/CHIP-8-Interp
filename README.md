@@ -4,7 +4,7 @@
 
 ### A toy interpeter for the CHIP-8 programming language
 
-![Chip-8 Tetris](p2.png)
+![Chip-8 Tetris](doc/tetris.png)
 
 ## Installation
 
@@ -30,4 +30,4 @@ The crates used in this project are
 - sdl2
 - rand
 
-![Chip-8 Pong](p3.png)
+![Chip-8 Pong](doc/pong.png)
