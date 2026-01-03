@@ -4,7 +4,7 @@
 
 ### A toy interpeter for the CHIP-8 programming language
 
-![Chip-8 Tetris](doc/tetris.png)
+![Chip-8 Tetris](./doc/tetris.png)
 
 ## Installation
 
@@ -14,7 +14,7 @@ Clone the repo and follow the usage instructions below. Install sdl2 for the pla
 
 Place ROMs in the programs folder. A good source of ROMs can be found [here](https://github.com/kripod/chip8-roms). To run the interpeter, run the following command
 
-> cargo run -- [r] [f]
+```cargo run -- <r> <f>```
 
 where r is the name of the rom *without* a .ch8 or .chip8 extension and where f is the instruction per frame count (between 10-15 is a good value)
 
@@ -22,7 +22,7 @@ The standard Chip-8 keyboard layout and modern mapping is used
 
 A release flag is optional, and a release build can also be made with 
 
-> cargo build --release
+```cargo build --release```
 
 # Crates
 
@@ -30,4 +30,4 @@ The crates used in this project are
 - sdl2
 - rand
 
-![Chip-8 Pong](doc/pong.png)
+![Chip-8 Pong](./doc/pong.png)
