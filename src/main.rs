@@ -32,16 +32,6 @@ fn keycode_to_hex(key: &Keycode) -> Option<u16> {
     }
 }
 
-/*
- * ============================================
- * TODO LIST TO BE IMPLEMENTED (INCLUDES FIXES)
- * ============================================
- */
-
-// TODO: Fix bug where finishing program does not result in hanging (?)
-// TODO: Pause execution while resizing window
-// TODO: Fix bug where incorrectly wraps sprite (seen in pong on clipping through screen)
-
 struct SineWave {
     phase_inc: f32,
     phase: f32,
@@ -81,7 +71,6 @@ pub fn main() -> Result<(), String> {
     // NOTE: register F is flag register (can be set to 0 or 1)
     let mut registers: [u8; 16] = [0; 16];
     let mut stack: Vec<usize> = Vec::with_capacity(16);
-    // NOTE: Storing display state in memory from 0x80 to 0x180
     let mut memory: [u8; 4096] = [0; 4096];
     let mut disp_mem: [bool; 2048] = [false; 2048];
 
@@ -250,7 +239,6 @@ pub fn main() -> Result<(), String> {
                         0xE0 => {
                             canvas.set_draw_color(Color::RGB(0, 0, 0));
                             canvas.clear();
-                            // memory[0x80..0x180].fill(0);
                             disp_mem.fill(false);
                         }
                         0xEE => pc = stack.pop().unwrap(),
